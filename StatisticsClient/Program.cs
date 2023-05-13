@@ -25,6 +25,8 @@ while (true)
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using ClientApplication;
+
 // namespace ClientApplication
 // {
 //     class Program
@@ -73,18 +75,28 @@ namespace StatisticsClient;
 
 internal static class Program
 {
+    private static List<int> Values { get; set; } = new();
     private static async Task Main()
     {
-        var median = new MedianFinder();
-        _ = UserInput(median);
+        MedianFinder median = new();
+        StandardDeviationCalculator sd = new();
+        ModeCalculator mc = new();
+
+        _ = UserInput(median, sd, mc);
         while (true)
         {
             Console.ReadLine();
-            Console.WriteLine("Ti tupoi " + median.FindMedian());
+            Console.WriteLine("I'm not sure" +
+                              "Average {0}\n" +
+                              "Standard deviation {1}\n" +
+                              "Mode {2}\n" +
+                              "Median {3}", "", sd.GetStandardDeviation(), mc.GetMode(), median.FindMedian());
+            Console.WriteLine("I'm sure\n" +
+                              "Standard mode {0}", Values.Mode());
         }
     }
 
-    private static async Task UserInput(MedianFinder median)
+    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc)
     {
         int multicastPort = 12347;  // UDP multicast port number
         string multicastGroup = "239.255.255.250";  // UDP multicast group address
@@ -104,8 +116,11 @@ internal static class Program
         {
             UdpReceiveResult result = await client.ReceiveAsync();
             string message = Encoding.ASCII.GetString(result.Buffer);
-            
-            median.AddNum(int.Parse(message));
+            int currentValue = int.Parse(message);
+            Values.Add(currentValue);
+            median.AddNum(currentValue);
+            sd.AddDataPoint(currentValue);
+            mc.Add(currentValue);
         }
     }
 }

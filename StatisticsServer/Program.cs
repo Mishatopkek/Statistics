@@ -10,7 +10,7 @@ internal static class Program
     private static async Task Main()
     {
         int minValue = 1;  // Minimum value of random number
-        int maxValue = 1000;  // Maximum value of random number
+        int maxValue = 100;  // Maximum value of random number
         int multicastPort = 12347;  // UDP multicast port number
         string multicastGroup = "239.255.255.250";  // UDP multicast group address
 
