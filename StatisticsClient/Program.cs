@@ -25,7 +25,6 @@ while (true)
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
-using ClientApplication;
 
 // namespace ClientApplication
 // {
@@ -81,33 +80,32 @@ internal static class Program
         MedianFinder median = new();
         StandardDeviationCalculator sd = new();
         ModeCalculator mc = new();
+        RunningAverage ra = new();
 
-        _ = UserInput(median, sd, mc);
+        _ = UserInput(median, sd, mc, ra);
         while (true)
         {
             Console.ReadLine();
             Console.WriteLine("I'm not sure" +
-                              "Average {0}\n" +
-                              "Standard deviation {1}\n" +
+                              "Average {0:F}\n" +
+                              "Standard deviation {1:F}\n" +
                               "Mode {2}\n" +
-                              "Median {3}", "", sd.GetStandardDeviation(), mc.GetMode(), median.FindMedian());
-            Console.WriteLine("I'm sure\n" +
-                              "Standard mode {0}", Values.Mode());
+                              "Median {3}", ra.CurrentAverage(), sd.GetStandardDeviation(), mc.GetMode(), median.FindMedian());
         }
     }
 
-    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc)
+    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc, RunningAverage ra)
     {
         int multicastPort = 12347;  // UDP multicast port number
         string multicastGroup = "239.255.255.250";  // UDP multicast group address
-        IPEndPoint localEP = new (IPAddress.Any, multicastPort);  // Local endpoint to bind to
+        IPEndPoint localEp = new (IPAddress.Any, multicastPort);  // Local endpoint to bind to
 
         // Create a UDP client and bind it to the local endpoint
         UdpClient client = new ();
         client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         client.ExclusiveAddressUse = false;
-        client.Client.Bind(localEP);
-
+        client.Client.Bind(localEp);
+        
         // Join the multicast group asynchronously
         client.JoinMulticastGroup(IPAddress.Parse(multicastGroup));
 
@@ -121,6 +119,7 @@ internal static class Program
             median.AddNum(currentValue);
             sd.AddDataPoint(currentValue);
             mc.Add(currentValue);
+            ra.Add(currentValue);
         }
     }
 }

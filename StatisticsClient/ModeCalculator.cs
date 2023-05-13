@@ -24,7 +24,9 @@ class ModeCalculator{
         }
     }
 
-    public int GetMode() {
+    public int GetMode()
+    {
+        var a = freq.Sum(x => x.Value);
         return mode;
     }
 }
