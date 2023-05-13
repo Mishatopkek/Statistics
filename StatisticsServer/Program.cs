@@ -1,46 +1,31 @@
-﻿/*using System.Net;
-using System.Net.Sockets;
-using System.Security.Cryptography;
-using System.Text;
- 
-using var udpSocket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
- 
-EndPoint remotePoint = new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5555);
-while (true)
-{
-    Thread.Sleep(10);
-    byte[] data = new byte[256];
-    var rng = RandomNumberGenerator.Create();
-    rng.GetBytes(data);
-    int bytes = await udpSocket.SendToAsync(data, remotePoint);
-    Console.WriteLine($"Отправлено {bytes} байт");
-}*/
-using System;
+﻿using System.Diagnostics.CodeAnalysis;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 
-namespace ServerApplication
+namespace StatisticsServer;
+
+internal static class Program
 {
-    class Program
+    private static async Task Main()
     {
-        static void Main(string[] args)
+        int minValue = 1;  // Minimum value of random number
+        int maxValue = 1000;  // Maximum value of random number
+        int multicastPort = 12347;  // UDP multicast port number
+        string multicastGroup = "239.255.255.250";  // UDP multicast group address
+
+        // Create a UDP client and join the multicast group
+        UdpClient client = new();
+        client.JoinMulticastGroup(IPAddress.Parse(multicastGroup));
+
+        // Generate and send random numbers indefinitely
+        Random random = new();
+        while (true)
         {
-            // Create a socket.
-            using var socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
-
-            // Bind the socket to a port.
-            socket.Bind(new IPEndPoint(IPAddress.Parse("127.0.0.1"), 5555));
-
-            // Start sending random numbers.
-            while (true)
-            {
-                // Generate a random number.
-                var randomNumber = new Random().Next(1, 1000);
-                var data = BitConverter.GetBytes(randomNumber);
-
-                // Send the random number to the client.
-                socket.Send(data, 0, data.Length, SocketFlags.None);
-            }
+            await Task.Delay(1);
+            int randomNumber = random.Next(minValue, maxValue + 1);
+            byte[] data = Encoding.ASCII.GetBytes(randomNumber.ToString());
+            await client.SendAsync(data, data.Length, new IPEndPoint(IPAddress.Parse(multicastGroup), multicastPort));
         }
     }
 }
