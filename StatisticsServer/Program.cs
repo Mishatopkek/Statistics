@@ -9,6 +9,7 @@ internal static class Program
 {
     private static async Task Main()
     {
+        ulong packetsSent = 0;
         int minValue = 1;  // Minimum value of random number
         int maxValue = 100;  // Maximum value of random number
         int multicastPort = 12347;  // UDP multicast port number
@@ -22,10 +23,14 @@ internal static class Program
         Random random = new();
         while (true)
         {
-            await Task.Delay(1);
             int randomNumber = random.Next(minValue, maxValue + 1);
             byte[] data = Encoding.ASCII.GetBytes(randomNumber.ToString());
-            await client.SendAsync(data, data.Length, new IPEndPoint(IPAddress.Parse(multicastGroup), multicastPort));
+            byte[] countPacket = BitConverter.GetBytes(packetsSent);
+            byte[] combinedPacket = new byte[data.Length + countPacket.Length];
+            Array.Copy(data, combinedPacket, data.Length);
+            Array.Copy(countPacket, 0, combinedPacket, data.Length, countPacket.Length);
+            await client.SendAsync(combinedPacket, combinedPacket.Length, new IPEndPoint(IPAddress.Parse(multicastGroup), multicastPort));
+            packetsSent++;
         }
     }
 }

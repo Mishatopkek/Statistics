@@ -74,8 +74,11 @@ namespace StatisticsClient;
 
 internal static class Program
 {
-    private static List<int> Values { get; set; } = new();
-    private static async Task Main()
+    private static ulong PacketsStarted { get; set; }
+    private static ulong CurrentPackets { get; set; }
+    private static ulong ReceivedPackets { get; set; }
+
+    private static Task Main()
     {
         MedianFinder median = new();
         StandardDeviationCalculator sd = new();
@@ -86,40 +89,67 @@ internal static class Program
         while (true)
         {
             Console.ReadLine();
+            double sendPackets = CurrentPackets - PacketsStarted;
+            var packetsLossRate = (sendPackets - ReceivedPackets) / sendPackets * 100;
             Console.WriteLine("I'm not sure" +
                               "Average {0:F}\n" +
                               "Standard deviation {1:F}\n" +
                               "Mode {2}\n" +
-                              "Median {3}", ra.CurrentAverage(), sd.GetStandardDeviation(), mc.GetMode(), median.FindMedian());
+                              "Median {3}" +
+                              "Packets loss rate {4}", ra.CurrentAverage(), sd.GetStandardDeviation(), mc.GetMode(),
+                median.FindMedian(), packetsLossRate);
         }
     }
 
-    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc, RunningAverage ra)
+    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc,
+        RunningAverage ra)
     {
-        int multicastPort = 12347;  // UDP multicast port number
-        string multicastGroup = "239.255.255.250";  // UDP multicast group address
-        IPEndPoint localEp = new (IPAddress.Any, multicastPort);  // Local endpoint to bind to
+        bool isFirstInput = true;
+        int multicastPort = 12347; // UDP multicast port number
+        string multicastGroup = "239.255.255.250"; // UDP multicast group address
+        IPEndPoint localEp = new(IPAddress.Any, multicastPort); // Local endpoint to bind to
 
         // Create a UDP client and bind it to the local endpoint
-        UdpClient client = new ();
+        UdpClient client = new();
         client.Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
         client.ExclusiveAddressUse = false;
         client.Client.Bind(localEp);
-        
+
         // Join the multicast group asynchronously
         client.JoinMulticastGroup(IPAddress.Parse(multicastGroup));
 
         // Receive multicast messages indefinitely
+        byte[] countPacket = new byte[8];
+        byte[] rawMessage = new byte[255 - 8];
+        char[] charBuffer = new char[255 - 8];
+
         while (true)
         {
             UdpReceiveResult result = await client.ReceiveAsync();
-            string message = Encoding.ASCII.GetString(result.Buffer);
+
+            Array.Clear(countPacket, 0, countPacket.Length);
+            Array.Copy(result.Buffer, result.Buffer.Length - 8, countPacket, 0, 8);
+            CurrentPackets = BitConverter.ToUInt64(countPacket, 0);
+
+            if (isFirstInput)
+            {
+                isFirstInput = false;
+                PacketsStarted = CurrentPackets;
+            }
+
+            Array.Clear(rawMessage, 0, rawMessage.Length);
+            Array.Copy(result.Buffer, 0, rawMessage, 0, result.Buffer.Length - 8);
+            int messageLength = result.Buffer.Length - 8;
+            Encoding.ASCII.GetChars(rawMessage, 0, messageLength, charBuffer, 0);
+            string message = new string(charBuffer, 0, messageLength);
             int currentValue = int.Parse(message);
-            Values.Add(currentValue);
+
             median.AddNum(currentValue);
             sd.AddDataPoint(currentValue);
             mc.Add(currentValue);
             ra.Add(currentValue);
+            ReceivedPackets++;
         }
+
     }
 }
