@@ -37,7 +37,7 @@ internal static class Program
             Buffer.BlockCopy(content, 0, contentPlusAmountOfSendContent, 0, dataLength);
             Buffer.BlockCopy(serverAmountOfSendContent, 0, contentPlusAmountOfSendContent, dataLength, 8);
 
-            _ = client.SendAsync(contentPlusAmountOfSendContent, contentPlusAmountOfSendContent.Length, endpoint);
+            _ = client.SendAsync(contentPlusAmountOfSendContent, dataLength + 8, endpoint);
 
             packetsSent++;
         }
