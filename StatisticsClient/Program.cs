@@ -22,9 +22,11 @@ while (true)
     Console.WriteLine($"Удаленный адрес: {result.RemoteEndPoint}");
 }*/
 
+using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using StatisticsClient.Math;
 
 // namespace ClientApplication
 // {
@@ -74,37 +76,34 @@ namespace StatisticsClient;
 
 internal static class Program
 {
-    private static ulong PacketsStarted { get; set; }
-    private static ulong CurrentPackets { get; set; }
-    private static ulong ReceivedPackets { get; set; }
-
+    private static Action<double>? _addData;
+    private static bool _isFirstInput = true;
     private static Task Main()
     {
-        MedianFinder median = new();
-        StandardDeviationCalculator sd = new();
-        ModeCalculator mc = new();
-        RunningAverage ra = new();
-
-        _ = UserInput(median, sd, mc, ra);
+        MedianMath median = new();
+        StandardDeviationMath sd = new();
+        ModeMath mode = new();
+        AverageMath average = new();
+        PacketsLossMath pl = new();
+        _addData = median.Add;
+        _addData += sd.Add;
+        _addData += mode.Add;
+        _addData += average.Add;
+        _ = UserInput(pl);
         while (true)
         {
             Console.ReadLine();
-            double sendPackets = CurrentPackets - PacketsStarted;
-            var packetsLossRate = (sendPackets - ReceivedPackets) / sendPackets * 100;
-            Console.WriteLine("I'm not sure" +
-                              "Average {0:F}\n" +
-                              "Standard deviation {1:F}\n" +
-                              "Mode {2}\n" +
-                              "Median {3}" +
-                              "Packets loss rate {4}", ra.CurrentAverage(), sd.GetStandardDeviation(), mc.GetMode(),
-                median.FindMedian(), packetsLossRate);
+            Console.WriteLine(
+@"Average {0:F}
+Standard deviation {1:F}
+Mode {2}
+Median {3}
+Packets loss rate {4:F}", average.Get(), sd.Get(), mode.Get(), median.Get(), pl.Get());
         }
     }
 
-    private static async Task UserInput(MedianFinder median, StandardDeviationCalculator sd, ModeCalculator mc,
-        RunningAverage ra)
+    private static async Task UserInput(PacketsLossMath pl)
     {
-        bool isFirstInput = true;
         int multicastPort = 12347; // UDP multicast port number
         string multicastGroup = "239.255.255.250"; // UDP multicast group address
         IPEndPoint localEp = new(IPAddress.Any, multicastPort); // Local endpoint to bind to
@@ -120,36 +119,49 @@ internal static class Program
 
         // Receive multicast messages indefinitely
         byte[] countPacket = new byte[8];
-        byte[] rawMessage = new byte[255 - 8];
-        char[] charBuffer = new char[255 - 8];
+        byte[] rawMessage = new byte[247];
+        char[] charBuffer = new char[247];
+        Stopwatch watch = Stopwatch.StartNew();
 
         while (true)
         {
-            UdpReceiveResult result = await client.ReceiveAsync();
-
-            Array.Clear(countPacket, 0, countPacket.Length);
-            Array.Copy(result.Buffer, result.Buffer.Length - 8, countPacket, 0, 8);
-            CurrentPackets = BitConverter.ToUInt64(countPacket, 0);
-
-            if (isFirstInput)
+            if (watch.ElapsedMilliseconds >= 1000)
             {
-                isFirstInput = false;
-                PacketsStarted = CurrentPackets;
+                await Task.Delay(10);
+                watch.Restart();
             }
+            UdpReceiveResult result = await client.ReceiveAsync();
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                NewMethod(pl, countPacket, result, rawMessage, charBuffer);
+            });
+        }
+    }
 
-            Array.Clear(rawMessage, 0, rawMessage.Length);
-            Array.Copy(result.Buffer, 0, rawMessage, 0, result.Buffer.Length - 8);
-            int messageLength = result.Buffer.Length - 8;
-            Encoding.ASCII.GetChars(rawMessage, 0, messageLength, charBuffer, 0);
-            string message = new string(charBuffer, 0, messageLength);
-            int currentValue = int.Parse(message);
-
-            median.AddNum(currentValue);
-            sd.AddDataPoint(currentValue);
-            mc.Add(currentValue);
-            ra.Add(currentValue);
-            ReceivedPackets++;
+    private static void NewMethod(
+        PacketsLossMath pl, 
+        byte[] countPacket, 
+        UdpReceiveResult result, 
+        byte[] rawMessage,
+        char[] charBuffer)
+    {
+        Array.Clear(countPacket, 0, countPacket.Length);
+        Array.Copy(result.Buffer, result.Buffer.Length - 8, countPacket, 0, 8);
+        ulong currentPackets = BitConverter.ToUInt64(countPacket, 0);
+        pl.Add(currentPackets);
+        if (_isFirstInput)
+        {
+            _isFirstInput = false;
+            pl.Start(currentPackets);
         }
 
+        Array.Clear(rawMessage, 0, rawMessage.Length);
+        Array.Copy(result.Buffer, 0, rawMessage, 0, result.Buffer.Length - 8);
+        int messageLength = result.Buffer.Length - 8;
+        Encoding.ASCII.GetChars(rawMessage, 0, messageLength, charBuffer, 0);
+        string message = new string(charBuffer, 0, messageLength);
+        int currentValue = int.Parse(message);
+
+        _addData?.Invoke(currentValue);
     }
 }
