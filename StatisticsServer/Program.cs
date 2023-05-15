@@ -1,21 +1,20 @@
-﻿using System.Diagnostics.CodeAnalysis;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Xml;
+// ReSharper disable FunctionNeverReturns
 
 namespace StatisticsServer;
 
 internal static class Program
 {
-    private static readonly Dictionary<string, string> APPSETTINGS = new();
-    private static void Main()
+    private static async Task Main()
     {
-        LoadAppsettings();
+        var appSettings = LoadAppSettings();
         ulong packetsSent = 0;
-        int minValue = int.Parse(APPSETTINGS["Min"]);
-        int maxValue = int.Parse(APPSETTINGS["Max"]);
-        string multicastGroup = APPSETTINGS["MulticastGroup"]; 
+        int minValue = int.Parse(appSettings["Min"]);
+        int maxValue = int.Parse(appSettings["Max"]);
+        string multicastGroup = appSettings["MulticastGroup"];
         const int multicastPort = 12347;
 
         UdpClient client = CreateUdpClient(multicastGroup, multicastPort, out IPEndPoint endpoint);
@@ -25,16 +24,34 @@ internal static class Program
         {
             int randomNumber = random.Next(minValue, maxValue);
 
-            byte[] data = Encoding.ASCII.GetBytes(randomNumber.ToString());
-            byte[] countPacketHasBeenSent = BitConverter.GetBytes(packetsSent);
-            byte[] dataAndCountPackets = new byte[data.Length + countPacketHasBeenSent.Length];
-            Array.Copy(data, dataAndCountPackets, data.Length);
-            Array.Copy(countPacketHasBeenSent, 0, dataAndCountPackets, data.Length, countPacketHasBeenSent.Length);
+            byte[] dataAndCountPackets = CombineDataAndCountPackets(randomNumber, packetsSent);
 
-            _ = client.SendAsync(dataAndCountPackets, dataAndCountPackets.Length, endpoint);
+            await client.SendAsync(dataAndCountPackets, dataAndCountPackets.Length, endpoint);
 
             packetsSent++;
         }
+    }
+
+    private static Dictionary<string, string> LoadAppSettings()
+    {
+        const string key = "key";
+        const string value = "value";
+        Dictionary<string, string> appSettings = new();
+        XmlDocument xmlDoc = new();
+        xmlDoc.Load("appsettings.xml");
+        XmlNodeList? settingNodes = xmlDoc.SelectNodes("//config/setting");
+        if (settingNodes == null) return appSettings;
+
+        foreach (XmlNode settingNode in settingNodes)
+        {
+            string keyData = settingNode.Attributes?[key]?.Value ??
+                             throw new ArgumentNullException(nameof(key), "The key was not found");
+            string valueData = settingNode.Attributes?[value]?.Value ??
+                               throw new ArgumentNullException(nameof(value), "The value was not found");
+            appSettings.Add(keyData, valueData);
+        }
+
+        return appSettings;
     }
 
     private static UdpClient CreateUdpClient(string multicastGroup, int multicastPort, out IPEndPoint endpoint)
@@ -45,16 +62,13 @@ internal static class Program
         return client;
     }
 
-    private static void LoadAppsettings()
+    private static byte[] CombineDataAndCountPackets(int randomNumber, ulong packetsSent)
     {
-        XmlDocument xmlDoc = new();
-        xmlDoc.Load("appsettings.xml");
-        XmlNodeList? settingNodes = xmlDoc.SelectNodes("//config/setting");
-        foreach (XmlNode settingNode in settingNodes)
-        {
-            string key = settingNode.Attributes?["key"].Value;
-            string value = settingNode.Attributes?["value"].Value;
-            APPSETTINGS.Add(key, value);
-        }
+        byte[] data = Encoding.ASCII.GetBytes(randomNumber.ToString());
+        byte[] countPacketHasBeenSent = BitConverter.GetBytes(packetsSent);
+        byte[] dataAndCountPackets = new byte[data.Length + countPacketHasBeenSent.Length];
+        Array.Copy(data, dataAndCountPackets, data.Length);
+        Array.Copy(countPacketHasBeenSent, 0, dataAndCountPackets, data.Length, countPacketHasBeenSent.Length);
+        return dataAndCountPackets;
     }
 }

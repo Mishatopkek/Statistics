@@ -3,74 +3,74 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Xml;
-using StatisticsClient.Math;
+
+// ReSharper disable FunctionNeverReturns
 
 namespace StatisticsClient;
 
 internal static class Program
 {
-    private static Action<double>? _addData;
     private static bool _isFirstInput = true;
-    private static readonly Dictionary<string, string> APPSETTINGS = new();
+
     private static Task Main()
     {
-        MedianMath median = new();
-        StandardDeviationMath sd = new();
-        ModeMath mode = new();
-        AverageMath average = new();
-        PacketsLossMath pl = new();
-        _addData = median.Add;
-        _addData += sd.Add;
-        _addData += mode.Add;
-        _addData += average.Add;
-        LoadAppsettings();
-
-        _ = UserInput(pl);
+        MathHandler mathHandler = new();
+        _ = UserInput(mathHandler);
         while (true)
         {
             Console.ReadLine();
-            Console.WriteLine(
-@"Average {0:F}
-Standard deviation {1:F}
-Mode {2}
-Median {3}
-Packets loss rate {4:F}", average.Get(), sd.Get(), mode.Get(), median.Get(), pl.Get());
+            mathHandler.GetStatistics();
         }
     }
 
-    private static void LoadAppsettings()
+    private static Dictionary<string, string> LoadAppSettings()
     {
+        const string key = "key";
+        const string value = "value";
+        Dictionary<string, string> appSettings = new();
         XmlDocument xmlDoc = new();
         xmlDoc.Load("appsettings.xml");
         XmlNodeList? settingNodes = xmlDoc.SelectNodes("//config/setting");
+        if (settingNodes == null) return appSettings;
+
         foreach (XmlNode settingNode in settingNodes)
         {
-            string key = settingNode.Attributes?["key"].Value;
-            string value = settingNode.Attributes?["value"].Value;
-            APPSETTINGS.Add(key, value);
+            string keyData = settingNode.Attributes?[key]?.Value ??
+                             throw new ArgumentNullException(nameof(key), "The key was not found");
+            string valueData = settingNode.Attributes?[value]?.Value ??
+                               throw new ArgumentNullException(nameof(value), "The value was not found");
+            appSettings.Add(keyData, valueData);
         }
+
+        return appSettings;
     }
 
-    private static async Task UserInput(PacketsLossMath pl)
+    private static async Task UserInput(MathHandler mathHandler)
     {
+        var appSettings = LoadAppSettings();
+        
         IPEndPoint localEp = new(IPAddress.Any, 12347);
-        int lagDelay = int.Parse(APPSETTINGS["Delay"]);
-
+        int lagDelay = int.Parse(appSettings["Delay"]);
         UdpClient client = CreateUdpClient(localEp);
-        client.JoinMulticastGroup(IPAddress.Parse(APPSETTINGS["MulticastGroup"]));
+        client.JoinMulticastGroup(IPAddress.Parse(appSettings["MulticastGroup"]));
 
-        Stopwatch watch = Stopwatch.StartNew();
+        var watch = Stopwatch.StartNew();
 
         while (true)
         {
-            if (watch.ElapsedMilliseconds >= 1000)
-            {
-                await Task.Delay(lagDelay);
-                watch.Restart();
-            }
+            await FakeLags(watch, lagDelay);
 
             UdpReceiveResult result = await client.ReceiveAsync();
-            ThreadPool.QueueUserWorkItem(_ => { SaveData(pl, result); });
+            ThreadPool.QueueUserWorkItem(_ => { SaveData(mathHandler, result); });
+        }
+    }
+
+    private static async Task FakeLags(Stopwatch watch, int lagDelay)
+    {
+        if (watch.ElapsedMilliseconds >= 1000)
+        {
+            await Task.Delay(lagDelay);
+            watch.Restart();
         }
     }
 
@@ -83,19 +83,22 @@ Packets loss rate {4:F}", average.Get(), sd.Get(), mode.Get(), median.Get(), pl.
         return client;
     }
 
-    private static void SaveData(PacketsLossMath pl, UdpReceiveResult result)
+    private static void SaveData(MathHandler mathHandler, UdpReceiveResult result)
     {
         ulong currentPackets = BitConverter.ToUInt64(result.Buffer, result.Buffer.Length - 8);
-        pl.Add(currentPackets);
-        if (_isFirstInput)
-        {
-            _isFirstInput = false;
-            pl.Start(currentPackets);
-        }
+        InitializeDataIfFirstRun(mathHandler, currentPackets);
+        mathHandler.PacketsLoss.Add(currentPackets);
 
         string message = Encoding.ASCII.GetString(result.Buffer, 0, result.Buffer.Length - 8);
         int currentValue = int.Parse(message);
 
-        _addData?.Invoke(currentValue);
+        mathHandler.AddAll(currentValue);
+    }
+
+    private static void InitializeDataIfFirstRun(MathHandler mathHandler, ulong currentPackets)
+    {
+        if (!_isFirstInput) return;
+        _isFirstInput = false;
+        mathHandler.PacketsLoss.Start(currentPackets);
     }
 }
