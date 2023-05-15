@@ -2,44 +2,59 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Xml;
 
 namespace StatisticsServer;
 
 internal static class Program
 {
+    private static readonly Dictionary<string, string> APPSETTINGS = new();
     private static void Main()
     {
+        LoadAppsettings();
         ulong packetsSent = 0;
-        int minValue = 1;  // Minimum value of random number
-        int maxValue = 99;  // Maximum value of random number
-        int multicastPort = 12347;  // UDP multicast port number
-        string multicastGroup = "239.255.255.250";  // UDP multicast group address
+        int minValue = int.Parse(APPSETTINGS["Min"]);
+        int maxValue = int.Parse(APPSETTINGS["Max"]);
+        string multicastGroup = APPSETTINGS["MulticastGroup"]; 
+        const int multicastPort = 12347;
 
-        // Create a UDP client and join the multicast group
-        UdpClient client = new();
-        client.JoinMulticastGroup(IPAddress.Parse(multicastGroup));
+        UdpClient client = CreateUdpClient(multicastGroup, multicastPort, out IPEndPoint endpoint);
 
-        // Generate and send random numbers indefinitely
         Random random = new();
-        byte[] content = new byte[247];
-        byte[] serverAmountOfSendContent = new byte[8];
-        byte[] contentPlusAmountOfSendContent = new byte[255];
-        IPEndPoint endpoint = new(IPAddress.Parse(multicastGroup), multicastPort);
-        TimeSpan timespan = new(10000);
         while (true)
         {
-            Thread.Sleep(timespan);
             int randomNumber = random.Next(minValue, maxValue);
 
-            int dataLength = Encoding.ASCII.GetBytes(randomNumber.ToString(), 0, randomNumber.ToString().Length, content, 0);
-            BitConverter.TryWriteBytes(serverAmountOfSendContent, packetsSent);
+            byte[] data = Encoding.ASCII.GetBytes(randomNumber.ToString());
+            byte[] countPacketHasBeenSent = BitConverter.GetBytes(packetsSent);
+            byte[] dataAndCountPackets = new byte[data.Length + countPacketHasBeenSent.Length];
+            Array.Copy(data, dataAndCountPackets, data.Length);
+            Array.Copy(countPacketHasBeenSent, 0, dataAndCountPackets, data.Length, countPacketHasBeenSent.Length);
 
-            Buffer.BlockCopy(content, 0, contentPlusAmountOfSendContent, 0, dataLength);
-            Buffer.BlockCopy(serverAmountOfSendContent, 0, contentPlusAmountOfSendContent, dataLength, 8);
-
-            _ = client.SendAsync(contentPlusAmountOfSendContent, dataLength + 8, endpoint);
+            _ = client.SendAsync(dataAndCountPackets, dataAndCountPackets.Length, endpoint);
 
             packetsSent++;
+        }
+    }
+
+    private static UdpClient CreateUdpClient(string multicastGroup, int multicastPort, out IPEndPoint endpoint)
+    {
+        UdpClient client = new();
+        client.JoinMulticastGroup(IPAddress.Parse(multicastGroup));
+        endpoint = new IPEndPoint(IPAddress.Parse(multicastGroup), multicastPort);
+        return client;
+    }
+
+    private static void LoadAppsettings()
+    {
+        XmlDocument xmlDoc = new();
+        xmlDoc.Load("appsettings.xml");
+        XmlNodeList? settingNodes = xmlDoc.SelectNodes("//config/setting");
+        foreach (XmlNode settingNode in settingNodes)
+        {
+            string key = settingNode.Attributes?["key"].Value;
+            string value = settingNode.Attributes?["value"].Value;
+            APPSETTINGS.Add(key, value);
         }
     }
 }

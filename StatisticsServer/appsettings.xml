@@ -1,0 +1,5 @@
+﻿<config>
+    <setting key="MulticastGroup" value="239.255.255.250" />
+    <setting key="Min" value="1" />
+    <setting key="Max" value="100" />
+</config>
